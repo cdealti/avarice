@@ -702,30 +702,55 @@ static char *getpacket(int &len)
     }
 }
 
+/**
+ * Write the string outBuffer to GDB, without adding checksums etc.
+ *
+ * outBuffer must be \0-terminated!
+ */
+static void putstring(const char *outBuffer)
+{
+    int ret;
+    int sent = 0;
+    int msgLength = strlen(outBuffer);
+
+    do {
+        ret = write(gdbFileDescriptor, outBuffer, msgLength - sent);
+
+        if ((ret != msgLength - sent) && (ret >= 0)) {
+            outBuffer += ret;
+            sent += ret;
+            waitForGdbOutput();
+        }
+
+        if (errno != EAGAIN && ret < 0) {
+            throw jtag_exception();
+        }
+    } while (sent < msgLength && getDebugChar() != '+');
+}
+
 /** Send packet 'buffer' to gdb. Adds $, # and checksum wrappers. **/
 static void putpacket(char *buffer)
 {
-    unsigned char checksum;
-    int count;
+    unsigned char checksum = 0;
     char ch;
+    char outBuffer[BUFMAX + 4]; // +4 for $, # and 2 Byte checksum
+    int ret;
+    int count = 0;
+
+    for(int count = 0; (count < BUFMAX) && (ch = buffer[count]); count++)
+    {
+        checksum += ch;
+    }
 
     //  $<packet info>#<checksum>.
-    do
-    {
-	putDebugChar('$');
-	checksum = 0;
-	count = 0;
+    ret = snprintf(outBuffer, sizeof(outBuffer), "$%s#%c%c", buffer,
+             hexchars[checksum >> 4], hexchars[checksum % 16]);
 
-	while((ch = buffer[count]))
-	{
-	    putDebugChar(ch);
-	    checksum += ch;
-	    count += 1;
-	}
-	putDebugChar('#');
-	putDebugChar(hexchars[checksum >> 4]);
-	putDebugChar(hexchars[checksum % 16]);
-    } while(getDebugChar() != '+'); // wait for the ACK
+    if (ret < 0) {
+        throw jtag_exception();
+    }
+
+    putstring(outBuffer);
 }
 
 /** Set remcomOutBuffer to "ok" response */
