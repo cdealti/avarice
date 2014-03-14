@@ -94,4 +94,7 @@ void jtag2::getJtagParameter(uchar item, uchar *&resp, int &respSize)
         throw jtag_exception("unexpected response to get paremater command");
 }
 
-
+bool jtag2::deviceSupportsRangeStepping()
+{
+	return true;
+}

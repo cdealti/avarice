@@ -1038,6 +1038,14 @@ class jtag
   **/
   virtual unsigned int cpuRegisterAreaAddress(void) const = 0;
 
+  /** Determine, if this device supports stepping over multiple assembler cmds
+
+    Returns true if the device supports stepping over multiple commands with
+    the CMND_RUN_TO_ADDR jtag instruction. Returns false otherwise.
+    Necessary, as this functionality is known to be implemented only for the
+    JTAG ICE mkII so far.
+   **/
+  virtual bool deviceSupportsRangeStepping() = 0;
 };
 
 class jtag_exception: public exception

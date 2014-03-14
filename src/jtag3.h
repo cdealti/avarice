@@ -256,6 +256,8 @@ class jtag3: public jtag
 
     virtual bool jtagRunToAddress(unsigned long toPC);
 
+    virtual bool deviceSupportsRangeStepping();
+
   protected:
     virtual void setBreakOnChangeOfFlow(bool yesno);
 

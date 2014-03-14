@@ -99,4 +99,7 @@ void jtag3::getJtagParameter(uchar scope, uchar section, uchar item, int length,
   }
 }
 
-
+bool jtag3::deviceSupportsRangeStepping()
+{
+	return false;
+}
