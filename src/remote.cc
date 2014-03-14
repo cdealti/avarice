@@ -296,47 +296,29 @@ void gdbOut(const char *fmt, ...)
 
     Reply with a packet of the form:
 
-      "Tss20:rr;21:llhh;22:aabbccdd;"
+      "Tss;22:aabbccdd;"
 
     where (all values in hex):
       ss       = signal number (usually SIGTRAP)
-      rr       = SREG value
-      llhh     = SPL:SPH  (stack pointer)
       aabbccdd = PC (program counter)
 
-    This actually saves having to read the 32 general registers when stepping
-    over code since gdb won't send a 'g' packet until the PC it is hunting for
-    is found.  */
+    Contrary to previous versions, we do not send the stack pointer and the
+    status registers every time we receive a break event during single stepping.
 
+    This way, GDB 7.6 requests a full 32 byte status after every completed code
+    line. The time needed to read the complete status is only around 50 ms
+    longer than reading the small status. Therefore, it seems reasonable to
+    not read the status every time.
+*/
 static void reportStatusExtended(int sigval)
 {
-    uchar *jtagBuffer;
     unsigned int pc = theJtagICE->getProgramCounter();
 
-    // Read in SPL SPH SREG
-    jtagBuffer = theJtagICE->jtagRead(theJtagICE->statusAreaAddress(), 0x03);
-
-    if (jtagBuffer)
-    {
-        // We have SPL SPH SREG and need SREG SPL SPH
-
-        snprintf (remcomOutBuffer, sizeof(remcomOutBuffer),
-                  "T%02x" "20:%02x;" "21:%02x%02x;" "22:%02x%02x%02x%02x;",
-                  sigval & 0xff,
-                  jtagBuffer[2], // SREG
-                  jtagBuffer[0], // SPL
-                  jtagBuffer[1], // SPH
-                  pc & 0xff, (pc >> 8) & 0xff,
-                  (pc >> 16) & 0xff, (pc >> 24) & 0xff);
-
-        delete [] jtagBuffer;
-        jtagBuffer = 0;
-    }
-    else
-    {
-        error(1);
-        return;
-    }
+    snprintf(remcomOutBuffer, sizeof(remcomOutBuffer),
+             "T%02x" "22:%02x%02x%02x%02x;",
+             sigval & 0xff,
+             pc & 0xff, (pc >> 8) & 0xff,
+             (pc >> 16) & 0xff, (pc >> 24) & 0xff);
 }
 
 /** Fill 'remcomOutBuffer' with a status report for signal 'sigval' **/
