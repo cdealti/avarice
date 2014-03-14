@@ -403,3 +403,10 @@ bool jtag3::jtagContinue(void)
   return eventLoop();
 }
 
+/*
+ * The following method is only supported on mkII devices so far.
+ */
+void jtag3::setBreakOnChangeOfFlow(bool yesno)
+{
+    throw "not implemented";
+}

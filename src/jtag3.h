@@ -254,6 +254,9 @@ class jtag3: public jtag
         return is_xmega? REGISTER_SPACE_ADDR_OFFSET: DATA_SPACE_ADDR_OFFSET;
     }
 
+  protected:
+    virtual void setBreakOnChangeOfFlow(bool yesno);
+
   private:
     virtual void changeBitRate(int newBitRate);
     virtual bool synchroniseAt(int bitrate);

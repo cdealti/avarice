@@ -218,3 +218,10 @@ bool jtag1::jtagContinue(void)
     }
 }
 
+/*
+ * The following method is only supported on mkII devices so far.
+ */
+void jtag1::setBreakOnChangeOfFlow(bool yesno)
+{
+    throw "not implemented";
+}

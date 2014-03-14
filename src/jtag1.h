@@ -123,6 +123,8 @@ class jtag1: public jtag
         /* no Xmega handling in JTAG ICE mkI */
         return DATA_SPACE_ADDR_OFFSET;
     }
+  protected:
+    virtual void setBreakOnChangeOfFlow(bool yesno);
 
   private:
     virtual void changeBitRate(int newBitRate);

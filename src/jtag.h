@@ -829,6 +829,14 @@ class jtag
 
   unsigned int get_page_size(BFDmemoryType memtype);
 
+  /* Set 'break on change of flow' flag, if supported.
+   *
+   * If the JTAG device supports range stepping, the break on change of flow
+   * flag must be set in the JTAG ICE so that GDB gets notified on jumps and can
+   * automatically step over function calls.
+   */
+  virtual void setBreakOnChangeOfFlow(bool yesno) = 0;
+
   public:
   jtag(void);
   jtag(const char *dev, char *name, emulator type = EMULATOR_JTAGICE);

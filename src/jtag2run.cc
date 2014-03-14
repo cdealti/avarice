@@ -409,3 +409,9 @@ bool jtag2::jtagContinue(void)
     return eventLoop();
 }
 
+void jtag2::setBreakOnChangeOfFlow(bool yesno)
+{
+    uchar command[1] = { CMND_SET_PARAMETER };
+
+    this->setJtagParameter(PAR_BREAK_ON_CHANGE_FLOW, command, yesno);
+}
