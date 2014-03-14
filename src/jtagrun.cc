@@ -219,9 +219,14 @@ bool jtag1::jtagContinue(void)
 }
 
 /*
- * The following method is only supported on mkII devices so far.
+ * The following methods are only supported on mkII devices so far.
  */
 void jtag1::setBreakOnChangeOfFlow(bool yesno)
+{
+    throw "not implemented";
+}
+
+bool jtag1::jtagRunToAddress(unsigned long toPC)
 {
     throw "not implemented";
 }

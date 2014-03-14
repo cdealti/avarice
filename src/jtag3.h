@@ -254,6 +254,8 @@ class jtag3: public jtag
         return is_xmega? REGISTER_SPACE_ADDR_OFFSET: DATA_SPACE_ADDR_OFFSET;
     }
 
+    virtual bool jtagRunToAddress(unsigned long toPC);
+
   protected:
     virtual void setBreakOnChangeOfFlow(bool yesno);
 

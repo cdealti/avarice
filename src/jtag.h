@@ -943,6 +943,12 @@ class jtag
       Return true for a breakpoint, false for gdb input. **/
   virtual bool jtagContinue(void) = 0;
 
+  /* Run until the program counter toPC is reached
+   *
+   * Not implemented on all devices, only mkII
+   */
+  virtual bool jtagRunToAddress(unsigned long toPC) = 0;
+
   // R/W memory
   // ----------
 

@@ -123,6 +123,9 @@ class jtag1: public jtag
         /* no Xmega handling in JTAG ICE mkI */
         return DATA_SPACE_ADDR_OFFSET;
     }
+
+    virtual bool jtagRunToAddress(unsigned long toPC);
+
   protected:
     virtual void setBreakOnChangeOfFlow(bool yesno);
 

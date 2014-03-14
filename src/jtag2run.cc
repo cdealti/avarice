@@ -415,3 +415,31 @@ void jtag2::setBreakOnChangeOfFlow(bool yesno)
 
     this->setJtagParameter(PAR_BREAK_ON_CHANGE_FLOW, command, yesno);
 }
+
+bool jtag2::jtagRunToAddress(unsigned long toPC)
+{
+    uchar *response;
+    int responseSize;
+    uchar command[5] = { CMND_RUN_TO_ADDR };
+
+    this->setBreakOnChangeOfFlow(true);
+
+    u32_to_b4(command + 1, toPC / 2);
+
+    try
+    {
+        doJtagCommand(command, sizeof(command), response, responseSize, true);
+    }
+    catch (jtag_exception& e)
+    {
+        fprintf(stderr, "cannot run to address: %s\n",
+                e.what());
+        throw;
+    }
+
+    delete [] response;
+
+    cached_pc_is_valid = false;
+
+    return eventLoop();
+}
