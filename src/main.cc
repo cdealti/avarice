@@ -49,6 +49,7 @@
 #include "gnu_getopt.h"
 
 bool ignoreInterrupts;
+bool disableInterrupts;
 
 static int makeSocket(struct sockaddr_in *name)
 {
@@ -206,6 +207,10 @@ static void usage(const char *progname)
 	    "                                Note: EXPERIMENTAL. Can not currently handle\n"
             "                                devices fused for compatibility.\n");
     fprintf(stderr,
+	    "  -i, --disable-intr          Automatically disable and restore interrupts while stepping.\n"
+	    "                                --ignore-intr is implied.\n"
+	    "                                JTAG ICE mkII only.\n");
+    fprintf(stderr,
 	    "  -j, --jtag <devname>        Port attached to JTAG box (default: /dev/avrjtag).\n");
     fprintf(stderr,
 	    "  -k, --known-devices         Print a list of known devices.\n");
@@ -324,6 +329,7 @@ static struct option long_opts[] = {
     { "dragon",              0,       0,     'g' },
     { "help",                0,       0,     'h' },
     { "ignore-intr",         0,       0,     'I' },
+    { "disable-intr",        0,       0,     'i' },
     { "jtag",                1,       0,     'j' },
     { "known-devices",       0,       0,     'k' },
     { "write-lockbits",      1,       0,     'L' },
@@ -451,6 +457,10 @@ int main(int argc, char **argv)
 		devicetype = DRAGON;
 		break;
             case 'I':
+                ignoreInterrupts = true;
+                break;
+            case 'i':
+                disableInterrupts = true;
                 ignoreInterrupts = true;
                 break;
             case 'j':

@@ -380,9 +380,44 @@ unsigned int readBWord(unsigned int address)
     return val;
 }
 
+// little-endian word read
+unsigned int readProgramLWord(unsigned int address)
+{
+    unsigned char *mem = theJtagICE->jtagRead(FLASH_SPACE_ADDR_OFFSET + address, 2);
+
+    if (!mem)
+	return 0;		// hmm
+
+    unsigned int val = mem[0] | mem[1] << 8;
+    delete[] mem;
+    return val;
+}
+
 unsigned int readSP(void)
 {
     return readLWord(0x5d);
+}
+
+unsigned char readSREG(void)
+{
+    unsigned char *mem = theJtagICE->jtagRead(DATA_SPACE_ADDR_OFFSET + 0x5f, 1);
+
+    if (!mem)
+	return 0;		// hmm
+
+    unsigned char val = mem[0];
+    delete[] mem;
+    return val;
+}
+
+void writeSREG(unsigned char val)
+{
+    theJtagICE->jtagWrite(DATA_SPACE_ADDR_OFFSET + 0x5f, 1, &val);
+}
+
+void writeRd(unsigned char d, unsigned char val)
+{
+    theJtagICE->jtagWrite(DATA_SPACE_ADDR_OFFSET + d, 1, &val);
 }
 
 bool handleInterrupt(void)
@@ -428,28 +463,129 @@ bool handleInterrupt(void)
 
 static bool singleStep()
 {
-    try
+    unsigned char backupSREG;
+    unsigned int opcode;
+    bool result = true;
+
+    // Disable interrupts while stepping, like in AVR Studio.
+    if (disableInterrupts)
     {
-        theJtagICE->jtagSingleStep();
-    }
-    catch (jtag_exception& e)
-    {
-	gdbOut("Failed to single-step");
+        backupSREG = readSREG();
+        if (backupSREG & 0x80)
+        {
+            writeSREG(backupSREG & ~0x80);
+            // remember the opcode if we disable interrupts
+            unsigned int pc = theJtagICE->getProgramCounter();
+            opcode = readProgramLWord(pc);
+        }
     }
 
-    unsigned int newPC = theJtagICE->getProgramCounter();
-    if (theJtagICE->codeBreakpointAt(newPC))
-	return true;
-    // assume interrupt when PC goes into interrupt table
-    if (ignoreInterrupts && newPC < theJtagICE->deviceDef->vectors_end) 
-	return handleInterrupt();
+    do
+    {
+        try
+        {
+            theJtagICE->jtagSingleStep();
+        }
+        catch (jtag_exception& e)
+        {
+            gdbOut("Failed to single-step");
+            throw;
+        }
+        
+        unsigned int newPC = theJtagICE->getProgramCounter();
+        if (theJtagICE->codeBreakpointAt(newPC))
+            break;
+        // assume interrupt when PC goes into interrupt table
+        if (ignoreInterrupts && newPC < theJtagICE->deviceDef->vectors_end) 
+            result = handleInterrupt();
+    } while (false);
 
-    return true;
+    // Re-enable interrupts if we did not step over a CLI
+    if (disableInterrupts && (backupSREG & 0x80) && (opcode != 0x94f8))
+    {
+        unsigned char sreg = readSREG();
+        if (!(sreg & 0x80))
+        {
+            sreg |= 0x80;
+            writeSREG(sreg);
+        }
+        // Often the compiler generates code where SREG (0x3f) is saved in a
+        // general purpose register and restored later on, e.g.:
+        //
+        // IN R0, 0x3f;   <--- PC
+        // ...
+        // OUT 0x3f, R0;
+        //
+        // If we stepped over the SREG save instruction having disabled
+        // the SREG global interrupt flag, R0 will contain the modified
+        // SREG value so we also need to restore R0 after stepping.
+        // Admittedly, Avarice should not be aware of the compiler ABI.
+        if ((opcode & 0xfe0f) == 0xb60f) // IN Rd, 0x3f
+        {
+            unsigned char d = ((opcode & 0x01f0) >> 4);
+            writeRd(d, backupSREG);
+        }
+    }
+
+    return result;
 }
 
 static bool rangeStep(unsigned int start, unsigned int end)
 {
     bool result;
+    bool interruptEnabled;
+
+    // Disable interrupts while stepping, like in AVR Studio.
+    // Compared to using the --ignore-intr option,
+    // this improves debugging speed because the target will not
+    // break at every interrupt while running to end address.
+    // However, as explained below, interrupts may still be serviced during
+    // a single GDB next or step command.
+    //
+    // While running to address, the program may re-enable interrupts,
+    // for example executing a SEI or RETI instruction.
+    // In this case, if an interrupt occurs, the target would break
+    // in the vectors table unless --ignore-intr is specified.
+    // This is why --ignore-intr is implied by --disable-intr.
+    //
+    // A single GDB step or next command may require multiple interactions
+    // with Avarice.
+    // Initially GDB asks Avarice to continue to end address.
+    // However this rarely happens due to a normal change in the program flow,
+    // like in the case of a branch or a call to subroutine.
+    // When this happens the target breaks.
+    // Avarice restores interrupts and returns control to GDB which
+    // needs to figure out what to do next.
+    // This description is not exhaustive but if GDB realizes that end address
+    // is reachable, it creates a breakpoint and asks Avarice to continue.
+    // In this phase interrupts may be enabled and they can be serviced.
+    //
+    // Before returning from this function we need to "restore" interrupts.
+    // This is not trivial.
+    // SEI, CLI and RETI instructions modify the global interrupt flag.
+    // There is no easy way to know what intructions the program executed
+    // so we cannot simply restore interrupts.
+    // If the interrupt flag was clear then
+    // it is either still clear or it has been set by the program.
+    // In this case we don't need to do anything.
+    // If the interrupt flag was set, we are not sure: if the program executed
+    // an unbalanced CLI (not followed by a SEI/RETI), re-enabling
+    // interrupts would be the wrong decision.
+    // Since the whole point is to debug code where interrupts are enabled,
+    // the above decision of re-enabling interrupts is often the right one
+    // but if we happen to step over a function which disable interrupts,
+    // we have to manually clear the global interrupt flag after the step.
+ 
+    if (disableInterrupts)
+    {
+        unsigned char sreg = readSREG();
+        interruptEnabled = sreg & 0x80;
+        if (interruptEnabled)
+        {
+            sreg &= ~0x80;
+            writeSREG(sreg);
+        }
+    }
 
     unsigned int pc = end;
     do
@@ -457,7 +593,7 @@ static bool rangeStep(unsigned int start, unsigned int end)
         result = theJtagICE->jtagRunToAddress(end);
         if (!result)
             break;
-
+    
         pc = theJtagICE->getProgramCounter();
         if (theJtagICE->codeBreakpointAt(pc))
             break;
@@ -468,10 +604,20 @@ static bool rangeStep(unsigned int start, unsigned int end)
             result = handleInterrupt();
             if (!result)
                 break;
-
+    
             pc = theJtagICE->getProgramCounter();
         }
     } while (pc >= start && pc < end);
+
+    if (disableInterrupts && interruptEnabled)
+    {
+        unsigned char sreg = readSREG();
+        if (!(sreg & 0x80))
+        {
+            sreg |= 0x80;
+            writeSREG(sreg);
+        }
+    }
 
     return result;
 }

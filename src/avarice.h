@@ -33,6 +33,9 @@ extern bool debugMode;
 /** true if interrupts should be stepped over when stepping */
 extern bool ignoreInterrupts;
 
+/** true if interrupts should be disabled when stepping */
+extern bool disableInterrupts;
+
 /** printf 'fmt, ...' if debugMode **/
 void vdebugOut(const char *fmt, va_list args);
 void debugOut(const char *fmt, ...);
