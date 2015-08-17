@@ -447,6 +447,35 @@ static bool singleStep()
     return true;
 }
 
+static bool rangeStep(unsigned int start, unsigned int end)
+{
+    bool result;
+
+    unsigned int pc = end;
+    do
+    {
+        result = theJtagICE->jtagRunToAddress(end);
+        if (!result)
+            break;
+
+        pc = theJtagICE->getProgramCounter();
+        if (theJtagICE->codeBreakpointAt(pc))
+            break;
+
+        // assume interrupt when PC goes into interrupt table
+        if (ignoreInterrupts && pc < theJtagICE->deviceDef->vectors_end)
+        {
+            result = handleInterrupt();
+            if (!result)
+                break;
+
+            pc = theJtagICE->getProgramCounter();
+        }
+    } while (pc >= start && pc < end);
+
+    return result;
+}
+
 /** Read packet from gdb into remcomInBuffer, check checksum and confirm
     reception to gdb.
     Return pointer to null-terminated, actual packet data (without $, #,
@@ -1242,6 +1271,60 @@ void talkToGdb(void)
 	    delete [] flashbuf;
 	    ok();
 	}
+        else if (strncmp(ptr, "Cont", 4) == 0)
+        {
+            ptr += 4;
+
+            // range stepping relies on device specific instructions
+            if (theJtagICE->deviceSupportsRangeStepping())
+            {
+                if(*ptr == '?')
+                {
+                    // yes, we support the vCont extension
+                    snprintf(remcomOutBuffer, sizeof(remcomOutBuffer),
+                             "vCont;c;C;s;S;t;r");
+                }
+                else if (*ptr == ';')
+                {
+                    // command
+                    ptr++;
+                    switch(*ptr)
+                    {
+                        case 'c':
+                            repStatus(theJtagICE->jtagContinue());
+                            break;
+                        case 'C':
+                            repStatus(theJtagICE->jtagContinue());
+                            break;
+                        case 's':
+                            repStatus(singleStep());
+                            break;
+                        case 'S':
+                            repStatus(singleStep());
+                            break;
+                        case 't':
+                            // the t stop command is only relevant in
+                            // non-stop mode, which we don't support
+                            // can safely be ignored
+                            break;
+                        case 'r':
+                            int start, end;
+                            ptr++;
+                            hexToInt(&ptr, &start);
+                            ptr++;
+                            hexToInt(&ptr, &end);
+                            repStatus(rangeStep((unsigned) start, (unsigned) end));
+                            break;
+                        default:
+                            debugOut("vCont command not known %c\n", *ptr);
+                    }
+                }
+            }
+            else
+            {
+                // no, send empty reply
+            }
+        }
 	break;
 
     case 'Z':
