@@ -96,5 +96,5 @@ void jtag2::getJtagParameter(uchar item, uchar *&resp, int &respSize)
 
 bool jtag2::deviceSupportsRangeStepping()
 {
-	return true;
+    return proto != PROTO_DW;
 }
