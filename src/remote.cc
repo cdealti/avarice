@@ -630,7 +630,7 @@ static bool rangeStepByStep(unsigned long start, unsigned long end)
     Return pointer to null-terminated, actual packet data (without $, #,
     the checksum)
 **/
-static char *getpacket(int &len)
+static char *getpacket(int &len, bool doAck)
 {
     char *buffer = &remcomInBuffer[0];
     unsigned char checksum;
@@ -699,11 +699,17 @@ static char *getpacket(int &len)
 		gdbOut("sent count = %s\n", buf);
 		gdbOut(" -- Bad buffer: \"%s\"\n", buffer);
 
-		putDebugChar('-');	// failed checksum
+                if(doAck)
+                {
+                    putDebugChar('-'); // failed checksum
+                }
 	    }
 	    else
 	    {
-		putDebugChar('+');	// successful transfer
+                if(doAck)
+                {
+                    putDebugChar('+'); // successful transfer
+                }
 
 		// if a sequence char is present, reply the sequence ID
 		if(buffer[2] == ':')
@@ -904,8 +910,9 @@ void talkToGdb(void)
     static char last_cmd = 0;
     static unsigned char *flashbuf;
     static int maxaddr;
+    static bool doAck = true;
 
-    ptr = getpacket(plen);
+    ptr = getpacket(plen, doAck);
 
     if (debugMode)
       {
@@ -1229,7 +1236,7 @@ void talkToGdb(void)
         }
 	else if (strncmp(ptr, "Supported:", 10) == 0)
 	{
-	    strcpy(remcomOutBuffer, "qXfer:memory-map:read+");
+            snprintf(remcomOutBuffer, sizeof(remcomOutBuffer), "qXfer:memory-map:read+;QStartNoAckMode+;PacketSize=%d", BUFMAX - 1);
 	}
 	else if (strncmp(ptr, "Xfer:memory-map:read::", 22) == 0)
 	{
@@ -1554,6 +1561,13 @@ void talkToGdb(void)
 	}
 	break;
 
+        case 'Q':
+        if (strcmp(ptr, "StartNoAckMode") == 0)
+        {
+            doAck = false;
+            strncpy(remcomOutBuffer, "OK", sizeof(remcomOutBuffer));
+        }
+        break;
     }	// switch
 
     last_cmd = cmd;
