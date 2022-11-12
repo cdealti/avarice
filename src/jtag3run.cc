@@ -307,12 +307,13 @@ bool jtag3::eventLoop(void)
 }
 
 
-void jtag3::jtagSingleStep(void)
+bool jtag3::jtagSingleStep(void)
 {
   uchar cmd[] = { SCOPE_AVR, CMD3_STEP,
 		  0, 0x01, 0x01 };
   uchar *resp;
   int respsize;
+  bool result;
 
   xmegaSendBPs();
 
@@ -329,8 +330,14 @@ void jtag3::jtagSingleStep(void)
     }
   delete [] resp;
 
-  bool bp, gdb;
-  expectEvent(bp, gdb);
+  result = eventLoop();
+  // this is weak as calling the loop may have consumed the break event we have to wait for
+  if (!result)
+  {
+    bool bp, gdb;
+    expectEvent(bp, gdb);
+  }
+  return result;
 }
 
 void jtag3::parseEvents(const char *evtlist)

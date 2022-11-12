@@ -936,7 +936,7 @@ class jtag
 
   /** Issue a "single step" command to the JTAG box.
   **/
-  virtual void jtagSingleStep(void) = 0;
+  virtual bool jtagSingleStep(void) = 0;
 
   /** Send the program on it's merry way, and wait for a breakpoint or
       input from gdb.

@@ -289,12 +289,13 @@ bool jtag2::eventLoop(void)
 }
 
 
-void jtag2::jtagSingleStep(void)
+bool jtag2::jtagSingleStep(void)
 {
     uchar cmd[3] = { CMND_SINGLE_STEP,
 		     0x01, 0x01 };
     uchar *resp;
     int respSize, i = 2;
+    bool result;
 
     xmegaSendBPs();
 
@@ -319,8 +320,14 @@ void jtag2::jtagSingleStep(void)
     if (i < 0)
         throw jtag_exception("Single-step failed");
 
-    bool bp, gdb;
-    expectEvent(bp, gdb);
+    result = eventLoop();
+    // this is weak as calling the loop may have consumed the break event we have to wait for
+    if (!result)
+    {
+        bool bp, gdb;
+        expectEvent(bp, gdb);
+    }
+    return result;
 }
 
 void jtag2::parseEvents(const char *evtlist)

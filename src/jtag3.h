@@ -242,7 +242,7 @@ class jtag3: public jtag
     virtual void resetProgram(bool ignored = false);
     virtual void interruptProgram(void);
     virtual void resumeProgram(void);
-    virtual void jtagSingleStep(void);
+    virtual bool jtagSingleStep(void);
     virtual bool jtagContinue(void);
 
     virtual uchar *jtagRead(unsigned long addr, unsigned int numBytes);

@@ -102,9 +102,10 @@ void jtag1::resumeProgram(void)
     doSimpleJtagCommand('G', 0);
 }
 
-void jtag1::jtagSingleStep(void)
+bool jtag1::jtagSingleStep(void)
 {
     doSimpleJtagCommand('1', 1);
+    return true;
 }
 
 void jtag1::parseEvents(const char *)

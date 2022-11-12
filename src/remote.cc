@@ -466,7 +466,11 @@ static bool singleStep()
     {
         try
         {
-            theJtagICE->jtagSingleStep();
+            if (!theJtagICE->jtagSingleStep())
+            {
+                result = false;
+                break;
+            }
         }
         catch (jtag_exception& e)
         {
@@ -512,7 +516,7 @@ static bool singleStep()
     return result;
 }
 
-static bool rangeStep(unsigned int start, unsigned int end)
+static bool rangeStep(unsigned long start, unsigned long end)
 {
     bool result;
     bool interruptEnabled;
@@ -569,7 +573,7 @@ static bool rangeStep(unsigned int start, unsigned int end)
         }
     }
 
-    unsigned int pc = end;
+    unsigned long pc = end;
     do
     {
         result = theJtagICE->jtagRunToAddress(end);
@@ -600,6 +604,23 @@ static bool rangeStep(unsigned int start, unsigned int end)
             writeSREG(sreg);
         }
     }
+
+    return result;
+}
+
+static bool rangeStepByStep(unsigned long start, unsigned long end)
+{
+    unsigned long pc = end;
+    bool result;
+
+    do
+    {
+        result = singleStep();
+        if (!result)
+            break;
+
+        pc = theJtagICE->getProgramCounter();
+    } while (pc >= start && pc < end);
 
     return result;
 }
@@ -1430,49 +1451,42 @@ void talkToGdb(void)
         {
             ptr += 4;
 
-            // range stepping relies on device specific instructions
-            if (theJtagICE->deviceSupportsRangeStepping())
+            if(*ptr == '?')
             {
-                if(*ptr == '?')
+                // yes, we support the vCont extension
+                snprintf(remcomOutBuffer, sizeof(remcomOutBuffer),
+                         "vCont;c;C;s;S;t;r");
+            }
+            else if (*ptr == ';')
+            {
+                // command
+                ptr++;
+                switch(*ptr)
                 {
-                    // yes, we support the vCont extension
-                    snprintf(remcomOutBuffer, sizeof(remcomOutBuffer),
-                             "vCont;c;C;s;S;t;r");
-                }
-                else if (*ptr == ';')
-                {
-                    // command
-                    ptr++;
-                    switch(*ptr)
-                    {
-                        case 'c':
-                            repStatus(theJtagICE->jtagContinue());
-                            break;
-                        case 'C':
-                            repStatus(theJtagICE->jtagContinue());
-                            break;
-                        case 's':
-                            repStatus(singleStep());
-                            break;
-                        case 'S':
-                            repStatus(singleStep());
-                            break;
-                        case 't':
-                            // the t stop command is only relevant in
-                            // non-stop mode, which we don't support
-                            // can safely be ignored
-                            break;
-                        case 'r':
-                            int start, end;
-                            ptr++;
-                            hexToInt(&ptr, &start);
-                            ptr++;
-                            hexToInt(&ptr, &end);
-                            repStatus(rangeStep((unsigned) start, (unsigned) end));
-                            break;
-                        default:
-                            debugOut("vCont command not known %c\n", *ptr);
-                    }
+                    case 'c':
+                    case 'C':
+                        repStatus(theJtagICE->jtagContinue());
+                        break;
+                    case 's':
+                    case 'S':
+                        repStatus(singleStep());
+                        break;
+                    case 'r':
+                        int start, end;
+                        ptr++;
+                        hexToInt(&ptr, &start);
+                        ptr++;
+                        hexToInt(&ptr, &end);
+                        if (theJtagICE->deviceSupportsRangeStepping())
+                        {
+                            repStatus(rangeStep(start, end));
+                        } else
+                        {
+                            repStatus(rangeStepByStep(start, end));
+                        }
+                        break;
+                    default:
+                        debugOut("vCont command not known %c\n", *ptr);
                 }
             }
             else
