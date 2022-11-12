@@ -707,25 +707,27 @@ static char *getpacket(int &len)
  *
  * outBuffer must be \0-terminated!
  */
-static void putstring(const char *outBuffer)
+static void putstring(const char * const outBuffer)
 {
-    int ret;
-    int sent = 0;
-    int msgLength = strlen(outBuffer);
+    ssize_t written;
+    size_t offset = 0;
+    const size_t len = strlen(outBuffer);
 
-    do {
-        ret = write(gdbFileDescriptor, outBuffer, msgLength - sent);
+    do
+    {
+        written = write(gdbFileDescriptor, &outBuffer[offset], len - offset);
 
-        if ((ret != msgLength - sent) && (ret >= 0)) {
-            outBuffer += ret;
-            sent += ret;
+        if (written < 0)
+        {
+          if (errno == EAGAIN)
             waitForGdbOutput();
-        }
-
-        if (errno != EAGAIN && ret < 0) {
+          else
             throw jtag_exception();
         }
-    } while (sent < msgLength && getDebugChar() != '+');
+        else
+          offset += written;
+    }
+    while (offset < len);
 }
 
 /** Send packet 'buffer' to gdb. Adds $, # and checksum wrappers. **/
