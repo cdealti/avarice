@@ -522,41 +522,39 @@ static bool rangeStep(unsigned long start, unsigned long end)
     bool interruptEnabled;
 
     // Disable interrupts while stepping, like in AVR Studio.
-    // Compared to using the --ignore-intr option,
+    // Compared to using only the --ignore-intr option,
     // this improves debugging speed because the target will not
-    // break at every interrupt while running to end address.
-    // However, as explained below, interrupts may still be serviced during
-    // a single GDB next or step command.
-    //
-    // While running to address, the program may re-enable interrupts,
+    // break at every interrupt while running to the end address.
+    // However, as explained below, the inferior program can enable interrupts
+    // in a GDB next or step command,
     // for example executing a SEI or RETI instruction.
-    // In this case, if an interrupt occurs, the target would break
-    // in the vectors table unless --ignore-intr is specified.
-    // This is why --ignore-intr is implied by --disable-intr.
+    // In this case, if an interrupt occurs, the target breaks
+    // in the vectors table unless --ignore-intr is given.
+    // This is why --ignore-intr is recommended in conjunction with --disable-intr.
     //
-    // A single GDB step or next command may require multiple interactions
-    // with Avarice.
-    // Initially GDB asks Avarice to continue to end address.
-    // However this rarely happens due to a normal change in the program flow,
+    // A GDB step or next command may require multiple interactions
+    // with AVaRICE.
+    // Initially GDB asks AVaRICE to continue to the end address.
+    // However this rarely happens due to normal changes in the program flow,
     // like in the case of a branch or a call to subroutine.
     // When this happens the target breaks.
-    // Avarice restores interrupts and returns control to GDB which
-    // needs to figure out what to do next.
+    // We re-enable interrupts and return control to GDB
+    // which needs to figure out what to do next.
     // This description is not exhaustive but if GDB realizes that end address
     // is reachable, it creates a breakpoint and asks Avarice to continue.
-    // In this phase interrupts may be enabled and they can be serviced.
+    // In this phase interrupts are enabled and they can be serviced.
     //
-    // Before returning from this function we need to "restore" interrupts.
+    // Before returning from this function we have to decide on interrupts.
     // This is not trivial.
     // SEI, CLI and RETI instructions modify the global interrupt flag.
-    // There is no easy way to know what intructions the program executed
+    // There is no easy way to know what intructions the program has executed
     // so we cannot simply restore interrupts.
     // If the interrupt flag was clear then
     // it is either still clear or it has been set by the program.
     // In this case we don't need to do anything.
-    // If the interrupt flag was set, we are not sure: if the program executed
+    // If the interrupt flag was set and the program has executed
     // an unbalanced CLI (not followed by a SEI/RETI), re-enabling
-    // interrupts would be the wrong decision.
+    // interrupts is the wrong decision.
     // Since the whole point is to debug code where interrupts are enabled,
     // the above decision of re-enabling interrupts is often the right one
     // but if we happen to step over a function which disable interrupts,

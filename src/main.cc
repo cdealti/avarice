@@ -207,9 +207,14 @@ static void usage(const char *progname)
 	    "                                Note: EXPERIMENTAL. Can not currently handle\n"
             "                                devices fused for compatibility.\n");
     fprintf(stderr,
-	    "  -i, --disable-intr          Automatically disable and restore interrupts while stepping.\n"
-	    "                                --ignore-intr is implied.\n"
-	    "                                JTAG ICE mkII only.\n");
+	    "  -i, --disable-intr          Disable and re-enable interrupts for single or range stepping.\n"
+	    "                                Recommended in conjunction with --ignore-intr\n"
+	    "                                but ONLY for on-chip debug systems that support\n"
+	    "                                hardware-assisted range stepping and hardware breakpoints\n"
+	    "                                such as the JTAG ICE mkII in JTAG mode\n"
+	    "                                Note: after an hardware-assisted range step interrupts\n"
+	    "                                are uncondionally re-enabled; AVaRICE does not know if\n"
+	    "                                the inferior program has disabled them during the step.\n");
     fprintf(stderr,
 	    "  -j, --jtag <devname>        Port attached to JTAG box (default: /dev/avrjtag).\n");
     fprintf(stderr,
@@ -461,7 +466,6 @@ int main(int argc, char **argv)
                 break;
             case 'i':
                 disableInterrupts = true;
-                ignoreInterrupts = true;
                 break;
             case 'j':
                 jtagDeviceName = optarg;
