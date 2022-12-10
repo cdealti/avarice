@@ -787,6 +787,10 @@ class jtag
   // Target device is an ATxmega one
   bool is_xmega;
 
+  bool ignoreInterrupts;
+  
+  bool disableInterrupts;
+
   public:
   // Whether we are in "programming mode" (changes how program memory
   // is written, apparently)
@@ -829,17 +833,12 @@ class jtag
 
   unsigned int get_page_size(BFDmemoryType memtype);
 
-  /* Set 'break on change of flow' flag, if supported.
-   *
-   * If the JTAG device supports range stepping, the break on change of flow
-   * flag must be set in the JTAG ICE so that GDB gets notified on jumps and can
-   * automatically step over function calls.
-   */
-  virtual void setBreakOnChangeOfFlow(bool yesno) = 0;
+  virtual bool handleInterrupt(void);
 
   public:
   jtag(void);
-  jtag(const char *dev, char *name, emulator type = EMULATOR_JTAGICE);
+  jtag(const char *dev, char *name, emulator type = EMULATOR_JTAGICE,
+       bool ignoreIntr = false, bool disableIntr = false);
   virtual ~jtag(void);
 
   // Basic JTAG I/O
@@ -943,12 +942,6 @@ class jtag
       Return true for a breakpoint, false for gdb input. **/
   virtual bool jtagContinue(void) = 0;
 
-  /* Run until the program counter toPC is reached
-   *
-   * Not implemented on all devices, only mkII
-   */
-  virtual bool jtagRunToAddress(unsigned long toPC) = 0;
-
   // R/W memory
   // ----------
 
@@ -1038,14 +1031,18 @@ class jtag
   **/
   virtual unsigned int cpuRegisterAreaAddress(void) const = 0;
 
-  /** Determine, if this device supports stepping over multiple assembler cmds
+  virtual unsigned int readLWord(unsigned int address);
+  virtual unsigned int readBWord(unsigned int address);
+  virtual unsigned int readProgramLWord(unsigned int address);
+  virtual unsigned int readSP(void);
+  virtual unsigned char readSREG(void);
+  virtual void writeSREG(unsigned char val);
+  virtual unsigned char readSREGAndWriteIntrEnable(bool enable);
+  virtual bool doubleWordSwBreakpointAt(unsigned int address);
 
-    Returns true if the device supports stepping over multiple commands with
-    the CMND_RUN_TO_ADDR jtag instruction. Returns false otherwise.
-    Necessary, as this functionality is known to be implemented only for the
-    JTAG ICE mkII so far.
-   **/
-  virtual bool deviceSupportsRangeStepping() = 0;
+  virtual bool continueRun(void);
+  virtual bool singleStep(void);
+  virtual bool rangeStep(unsigned long start, unsigned long end);
 };
 
 class jtag_exception: public exception

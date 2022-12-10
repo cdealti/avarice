@@ -603,23 +603,27 @@ int main(int argc, char **argv)
 	// And say hello to the JTAG box
 	switch (devicetype) {
 	case MKI:
-	    theJtagICE = new jtag1(jtagDeviceName, device_name, apply_nsrst);
+	    theJtagICE = new jtag1(jtagDeviceName, device_name, apply_nsrst,
+                   ignoreInterrupts, disableInterrupts);
 	    break;
 
 	case MKII:
 	case DRAGON:
 	    theJtagICE = new jtag2(jtagDeviceName, device_name, proto,
-				   devicetype == DRAGON, apply_nsrst, is_xmega);
+				   devicetype == DRAGON, apply_nsrst, is_xmega,
+                   ignoreInterrupts, disableInterrupts);
 	    break;
 
 	case JTAG3:
 	    theJtagICE = new jtag3(jtagDeviceName, device_name, proto,
-				   apply_nsrst, is_xmega);
+				   apply_nsrst, is_xmega,
+                   ignoreInterrupts, disableInterrupts);
 	    break;
 
 	case EDBG:
 	    theJtagICE = new jtag3(jtagDeviceName, device_name, proto,
-				   apply_nsrst, is_xmega, true);
+				   apply_nsrst, is_xmega, true,
+                   ignoreInterrupts, disableInterrupts);
 	    break;
 	}
 

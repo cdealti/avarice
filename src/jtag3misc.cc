@@ -98,8 +98,3 @@ void jtag3::getJtagParameter(uchar scope, uchar section, uchar item, int length,
     throw jtag_exception("unexpected response to get parameter command");
   }
 }
-
-bool jtag3::deviceSupportsRangeStepping()
-{
-	return false;
-}

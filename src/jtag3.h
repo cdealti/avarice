@@ -200,10 +200,13 @@ class jtag3: public jtag
 
   public:
     jtag3(const char *dev, char *name, enum debugproto prot = PROTO_JTAG,
-	  bool nsrst = false,
+	        bool nsrst = false,
           bool xmega = false,
-          bool edbg = false):
-        jtag(dev, name, edbg? EMULATOR_EDBG: EMULATOR_JTAGICE3) {
+          bool edbg = false,
+          bool ignoreIntr = false,
+          bool disableIntr = false):
+        jtag(dev, name, edbg? EMULATOR_EDBG: EMULATOR_JTAGICE3,
+             ignoreIntr, disableIntr) {
 	signedIn = debug_active = false;
 	command_sequence = 0;
 	proto = prot;
@@ -253,13 +256,6 @@ class jtag3: public jtag
     virtual unsigned int cpuRegisterAreaAddress(void) const {
         return is_xmega? REGISTER_SPACE_ADDR_OFFSET: DATA_SPACE_ADDR_OFFSET;
     }
-
-    virtual bool jtagRunToAddress(unsigned long toPC);
-
-    virtual bool deviceSupportsRangeStepping();
-
-  protected:
-    virtual void setBreakOnChangeOfFlow(bool yesno);
 
   private:
     virtual void changeBitRate(int newBitRate);

@@ -92,8 +92,33 @@ jtag2::~jtag2(void)
       {
 	  try
 	  {
-	      if (debug_active)
-		  doSimpleJtagCommand(CMND_RESTORE_TARGET);
+		  if (debug_active)
+		  {
+			  bool bp, gdb;
+			  expectEvent(bp, gdb); // just in case
+			  cached_pc_is_valid = false;
+			  unsigned long pc = getProgramCounter();
+			  debugOut("PC = %x\n", pc);
+			  doSimpleJtagCommand(CMND_RESTORE_TARGET);
+			  expectEvent(bp, gdb); // wait for the target to stop
+
+			  // debugWire: target is neither reset nor started
+			  if (proto == PROTO_DW)
+			  {
+				  cached_pc_is_valid = false;
+				  pc = getProgramCounter();
+				  debugOut("PC = %x\n", pc);
+
+				  doSimpleJtagCommand(CMND_RESET);
+				  expectEvent(bp, gdb);
+
+				  cached_pc_is_valid = false;
+				  pc = getProgramCounter();
+				  debugOut("PC = %x\n", pc);
+
+				  doSimpleJtagCommand(CMND_GO);
+			  }
+		  }
 	  }
 	  catch (jtag_exception&)
 	  {

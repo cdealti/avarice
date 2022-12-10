@@ -328,6 +328,24 @@ bool jtag2::jtagSingleStep(void)
         expectEvent(bp, gdb);
     }
     return result;
+
+    // Stepping into a breakpoint on a 32 bit instruction in debugWire mode.
+    //
+    // If --disable-intr is given (interupts disabled before stepping):
+    // * the ICE executes the original instruction
+    // * the ICE removes the break instruction from flash
+    //   (checked power cycling the target after the step)
+    //
+    // Otherwise, regardless of --ignore-intr, if the target breaks in the IVT:
+    // * the ICE does NOT execute the original instruction
+    // * the ICE does NOT remove the break instruction from flash
+    // Calling jtag2::updateBreakpoints to delete the breakpoint
+    // (to honour the 'z' packet after reporting a breakpoint stop from previous continute)
+    // before stepping does not help.
+    //
+    // Note: If --ignore-intr is NOT geiven, GDB 12.1 handles breaking in the IVT
+    // the same as jtag:handleInterrupt would,
+    // creating a temporary breakpoint and continuing.
 }
 
 void jtag2::parseEvents(const char *evtlist)
@@ -418,9 +436,13 @@ bool jtag2::jtagContinue(void)
 
 void jtag2::setBreakOnChangeOfFlow(bool yesno)
 {
-    uchar command[1] = { CMND_SET_PARAMETER };
+    if (breakOnChangeOfFlow != yesno) {
+        uchar command[1] = { CMND_SET_PARAMETER };
 
-    this->setJtagParameter(PAR_BREAK_ON_CHANGE_FLOW, command, yesno);
+        this->setJtagParameter(PAR_BREAK_ON_CHANGE_FLOW, command, yesno);
+
+        breakOnChangeOfFlow = yesno;
+    }
 }
 
 bool jtag2::jtagRunToAddress(unsigned long toPC)
@@ -428,8 +450,6 @@ bool jtag2::jtagRunToAddress(unsigned long toPC)
     uchar *response;
     int responseSize;
     uchar command[5] = { CMND_RUN_TO_ADDR };
-
-    this->setBreakOnChangeOfFlow(true);
 
     u32_to_b4(command + 1, toPC / 2);
 
@@ -448,5 +468,136 @@ bool jtag2::jtagRunToAddress(unsigned long toPC)
 
     cached_pc_is_valid = false;
 
-    return eventLoop();
+    bool result = eventLoop();
+    // this is weak as calling the loop may have consumed the break event we have to wait for
+    if (!result)
+    {
+        bool bp, gdb;
+        expectEvent(bp, gdb);
+    }
+    return result;
+}
+
+bool jtag2::handleInterrupt(void)
+{
+    bool result;
+
+    debugOut("INTERRUPT\n");
+    unsigned int intrSP = readSP();
+    unsigned int retPC = readBWord(intrSP + 1) << 1;
+    debugOut("INT SP = %x, retPC = %x\n", intrSP, retPC);
+
+    if (proto != PROTO_DW)
+        setBreakOnChangeOfFlow(false);
+
+    for (;;)
+    {
+        result = jtagRunToAddress(retPC);
+
+        if (!result) // user interrupt
+            break;
+
+        // We check that SP is > intrSP. If SP <= intrSP, this is just
+        // an unrelated excursion to retPC
+        if (readSP() > intrSP)
+            break;
+    }
+    return result;
+}
+
+bool jtag2::rangeStep(unsigned long start, unsigned long end)
+{
+    if (proto == PROTO_DW)
+        return jtag::rangeStep(start, end);
+
+    // Disable interrupts while stepping, like in AVR Studio.
+    // Compared to using only the --ignore-intr option,
+    // this improves debugging speed because the target will not
+    // break at every interrupt while running to the end address.
+    // However, as explained below, the inferior program can enable interrupts
+    // in a GDB next or step command,
+    // for example executing a SEI or RETI instruction.
+    // In this case, if an interrupt occurs, the target breaks
+    // in the vectors table unless --ignore-intr is given.
+    // This is why --ignore-intr is recommended in conjunction with --disable-intr.
+    //
+    // A GDB step or next command may require multiple interactions
+    // with AVaRICE.
+    // Initially GDB asks AVaRICE to continue to the end address.
+    // However this rarely happens due to normal changes in the program flow,
+    // like in the case of a branch or a call to subroutine.
+    // When this happens the target breaks.
+    // We re-enable interrupts and return control to GDB
+    // which needs to figure out what to do next.
+    // This description is not exhaustive but if GDB realizes that end address
+    // is reachable, it creates a breakpoint and asks Avarice to continue.
+    // In this phase interrupts are enabled and they can be serviced.
+    //
+    // Before returning from this function we have to decide on interrupts.
+    // This is not trivial.
+    // SEI, CLI and RETI instructions modify the global interrupt flag.
+    // There is no easy way to know what intructions the program has executed
+    // so we cannot simply restore interrupts.
+    // If the interrupt flag was clear then
+    // it is either still clear or it has been set by the program.
+    // In this case we don't need to do anything.
+    // If the interrupt flag was set and the program has executed
+    // an unbalanced CLI (not followed by a SEI/RETI), re-enabling
+    // interrupts is the wrong decision.
+    // Since the whole point is to debug code where interrupts are enabled,
+    // the above decision of re-enabling interrupts is often the right one
+    // but if we happen to step over a function which disable interrupts,
+    // we have to manually clear the global interrupt flag after the step.
+
+    bool result;
+    bool interruptsEnabled;
+
+    unsigned long pc = getProgramCounter();
+    while (doubleWordSwBreakpointAt(pc))
+    {
+        result = singleStep();
+        if (!result)
+            break;
+
+        pc = getProgramCounter();
+        if (!(pc >= start && pc < end))
+            break;
+    }
+
+    if (!result)
+        return result;
+
+    if (disableInterrupts)
+    {
+        unsigned char sreg = readSREGAndWriteIntrEnable(false);
+        interruptsEnabled = sreg & 0x80;
+    }
+
+    setBreakOnChangeOfFlow(true);
+
+    do
+    {
+        result = jtagRunToAddress(end);
+        if (!result)
+            break;
+
+        pc = getProgramCounter();
+        if (codeBreakpointAt(pc))
+            break;
+
+        // assume interrupt when PC goes into interrupt table
+        if (ignoreInterrupts && pc < deviceDef->vectors_end)
+        {
+            result = handleInterrupt();
+            if (!result)
+                break;
+
+            pc = getProgramCounter();
+        }
+    } while (pc >= start && pc < end);
+
+    if (disableInterrupts && interruptsEnabled)
+        readSREGAndWriteIntrEnable(true);
+
+    return result;
 }

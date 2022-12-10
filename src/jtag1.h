@@ -84,8 +84,9 @@ class jtag1: public jtag
     int numBreakpointsCode, numBreakpointsData;
 
   public:
-    jtag1(const char *dev, char *name, bool nsrst = false):
-      jtag(dev, name) {
+    jtag1(const char *dev, char *name, bool nsrst = false,
+          bool ignoreIntr = false, bool disableIntr = false):
+      jtag(dev, name, EMULATOR_JTAGICE, ignoreIntr, disableIntr) {
 	apply_nSRST = nsrst;
     };
 
@@ -123,13 +124,6 @@ class jtag1: public jtag
         /* no Xmega handling in JTAG ICE mkI */
         return DATA_SPACE_ADDR_OFFSET;
     }
-
-    virtual bool jtagRunToAddress(unsigned long toPC);
-
-    virtual bool deviceSupportsRangeStepping();
-
-  protected:
-    virtual void setBreakOnChangeOfFlow(bool yesno);
 
   private:
     virtual void changeBitRate(int newBitRate);

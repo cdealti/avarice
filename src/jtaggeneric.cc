@@ -36,6 +36,7 @@
 
 #include "avarice.h"
 #include "jtag.h"
+#include "remote.h" // for gdbOut
 
 const char *BFDmemoryTypeString[] = {
     "FLASH",
@@ -65,7 +66,8 @@ jtag::jtag(void)
   softbp_only = is_xmega = oldtioValid = is_usb = false;
 }
 
-jtag::jtag(const char *jtagDeviceName, char *name, emulator type)
+jtag::jtag(const char *jtagDeviceName, char *name, emulator type,
+           bool ignoreIntr, bool disableIntr)
 {
     struct termios newtio;
 
@@ -73,6 +75,8 @@ jtag::jtag(const char *jtagDeviceName, char *name, emulator type)
     oldtioValid = is_usb = false;
     device_name = name;
     emu_type = type;
+    ignoreInterrupts = ignoreIntr;
+    disableInterrupts = disableIntr;
     programmingEnabled = 0;
     deviceDef = NULL;
     if (strncmp(jtagDeviceName, "usb", 3) == 0)
@@ -1011,3 +1015,244 @@ bool jtag::layoutBreakpoints(void)
     return hadroom;
 }
 
+bool jtag::doubleWordSwBreakpointAt(unsigned int address)
+{
+    bool result = false;
+    int i = 0;
+
+    while (!bp[i].last)
+    {
+        if ((bp[i].address == address) && (bp[i].type == CODE) && (bp[i].bpnum == 0) && bp[i].icestatus)
+        {
+            unsigned int instr = readProgramLWord(address);
+
+            if (((instr & 0xfe0e) == 0x940e) || /* CALL */
+                ((instr & 0xfe0e) == 0x940c) || /* JMP */
+                ((instr & 0xfe0f) == 0x9000) || /* LDS */
+                ((instr & 0xfe0f) == 0x9200) /* STS */)
+                result = true;
+
+            break;
+        }
+
+        i++;
+    }
+
+    return result;
+}
+
+// little-endian word read
+unsigned int jtag::readLWord(unsigned int address)
+{
+    unsigned char *mem = jtagRead(DATA_SPACE_ADDR_OFFSET + address, 2);
+
+    if (!mem)
+        return 0; // hmm
+
+    unsigned int val = mem[0] | mem[1] << 8;
+    delete[] mem;
+    return val;
+}
+
+// big-endian word read
+unsigned int jtag::readBWord(unsigned int address)
+{
+    unsigned int mem = readLWord(address);
+
+    unsigned int result = (mem & 0xff) << 8;
+    result |= (mem >> 8) & 0xff;
+
+    return result;
+}
+
+// little-endian word read
+unsigned int jtag::readProgramLWord(unsigned int address)
+{
+    unsigned char *mem = theJtagICE->jtagRead(FLASH_SPACE_ADDR_OFFSET + address, 2);
+
+    if (!mem)
+        return 0; // hmm
+
+    unsigned int val = mem[0] | mem[1] << 8;
+    delete[] mem;
+    return val;
+}
+
+unsigned int jtag::readSP(void)
+{
+    return readLWord(statusAreaAddress() - DATA_SPACE_ADDR_OFFSET);
+}
+
+unsigned char jtag::readSREG(void)
+{
+    unsigned char *mem = jtagRead(statusAreaAddress() + 2, 1);
+
+    if (!mem)
+        return 0; // hmm
+
+    unsigned char val = mem[0];
+    delete[] mem;
+    return val;
+}
+
+void jtag::writeSREG(unsigned char val)
+{
+    jtagWrite(statusAreaAddress() + 2, 1, &val);
+}
+
+bool jtag::handleInterrupt(void)
+{
+    bool result;
+
+    // Set a breakpoint at return address
+    debugOut("INTERRUPT\n");
+    unsigned int intrSP = readSP();
+    unsigned int retPC = readBWord(intrSP + 1) << 1;
+    debugOut("INT SP = %x, retPC = %x\n", intrSP, retPC);
+
+    bool needBP = !codeBreakpointAt(retPC);
+
+    for (;;)
+    {
+        if (needBP)
+        {
+            // If no breakpoint at return address (normal case),
+            // add one.
+            // Normally, this breakpoint add should succeed as gdb shouldn't
+            // be using a momentary breakpoint when doing a step-through-range,
+            // thus leaving is a free hw breakpoint. But if for some reason it
+            // the add fails, interrupt the program at the interrupt handler
+            // entry point
+            if (!addBreakpoint(retPC, CODE, 0))
+                return false;
+        }
+        result = jtagContinue();
+        if (needBP)
+            deleteBreakpoint(retPC, CODE, 0);
+
+        if (!result || !needBP) // user interrupt or hit user BP at retPC
+            break;
+
+        // We check that SP is > intrSP. If SP <= intrSP, this is just
+        // an unrelated excursion to retPC
+        if (readSP() > intrSP)
+            break;
+    }
+    return result;
+}
+
+bool jtag::rangeStep(unsigned long start, unsigned long end)
+{
+    unsigned long pc;
+    bool result;
+
+    do
+    {
+        result = singleStep();
+        if (!result)
+            break;
+        pc = getProgramCounter();
+    } while (pc >= start && pc < end);
+
+    return result;
+}
+
+bool jtag::singleStep(void)
+{
+    bool result;
+    unsigned char backupSREG = 0;
+    unsigned int opcode;
+
+    unsigned long pc = getProgramCounter();
+    if (disableInterrupts || doubleWordSwBreakpointAt(pc))
+    {
+        backupSREG = readSREGAndWriteIntrEnable(false);
+        if (backupSREG & 0x80)
+        {
+            opcode = readProgramLWord(pc); // remember the opcode if we disable interrupts
+            debugOut("Opcode: %x\n", opcode);
+        }
+    }
+
+    do
+    {
+        result = jtagSingleStep();
+        if (!result)
+            break;
+
+        pc = getProgramCounter();
+
+        if (codeBreakpointAt(pc))
+            break;
+
+        // assume interrupt when PC goes into interrupt table
+        if (ignoreInterrupts && pc < deviceDef->vectors_end)
+        {
+            result = handleInterrupt();
+            if (!result)
+                break;
+
+            pc = getProgramCounter();
+        }
+    } while (false);
+
+    // Re-enable interrupts if we did not step over a CLI
+    if ((backupSREG & 0x80) && (opcode != 0x94f8))
+    {
+        readSREGAndWriteIntrEnable(true);
+
+        // Often the compiler generates code where SREG (0x3f) is saved in a
+        // general purpose register and restored later on, e.g.:
+        //
+        // PC> IN R0, 0x3f;
+        //     ...
+        //     OUT 0x3f, R0;
+        //
+        // If we stepped over the SREG save instruction having disabled
+        // the SREG global interrupt flag, R0 will contain the modified
+        // SREG value so we also need to restore R0 after stepping.
+        // Admittedly, Avarice should not be aware of the compiler ABI.
+        if ((opcode & 0xfe0f) == 0xb60f) // IN Rd, 0x3f
+        {
+            unsigned char d = ((opcode & 0x01f0) >> 4);
+            jtagWrite(cpuRegisterAreaAddress() + d, 1, &backupSREG);
+        }
+    }
+
+    return result;
+}
+
+bool jtag::continueRun(void)
+{
+    bool result;
+
+    unsigned long pc = getProgramCounter();
+    while (doubleWordSwBreakpointAt(pc))
+    {
+        result = singleStep();
+        if (!result)
+            break;
+
+        pc = getProgramCounter();
+    }
+
+    if (!result)
+        return result;
+
+    return jtagContinue();
+}
+
+unsigned char jtag::readSREGAndWriteIntrEnable(bool enable)
+{
+    unsigned char sreg = readSREG();
+    unsigned char newSREG = sreg;
+    if (enable)
+        newSREG |= 0x80;
+    else
+        newSREG &= ~0x80;
+
+    if (newSREG != sreg)
+        writeSREG(newSREG);
+
+    return sreg;
+}

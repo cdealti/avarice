@@ -45,7 +45,7 @@ bool jtag2::codeBreakpointAt(unsigned int address)
     i = 0;
     while (!bp[i].last)
       {
-	  if ((bp[i].address == address) && (bp[i].type == CODE) && bp[i].enabled)
+	  if ((bp[i].address == address) && (bp[i].type == CODE) && bp[i].icestatus)
 	      return true;
 
 	  i++;
@@ -274,6 +274,14 @@ void jtag2::updateBreakpoints(void)
 			    throw jtag_exception("Invalid bp mode (for data bp)");
 			    break;
 		    }
+
+			// force caching the page before replacing the instruction with a break
+			if ((bp[bp_i].type == CODE) && (bp[bp_i].bpnum == 0))
+			{
+				unsigned char *mem = theJtagICE->jtagRead(FLASH_SPACE_ADDR_OFFSET + bp[bp_i].address, 2);
+				if (!mem)
+					delete mem;
+			}
 
 		    uchar *response;
 		    int responseSize;

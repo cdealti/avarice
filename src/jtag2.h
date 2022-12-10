@@ -46,11 +46,14 @@ class jtag2: public jtag
 
     bool nonbreaking_events[EVT_MAX - EVT_BREAK + 1];
 
+    bool breakOnChangeOfFlow;
+
   public:
     jtag2(const char *dev, char *name, enum debugproto prot = PROTO_JTAG,
-	  bool is_dragon = false, bool nsrst = false,
-          bool xmega = false):
-      jtag(dev, name, is_dragon? EMULATOR_DRAGON: EMULATOR_JTAGICE) {
+	        bool is_dragon = false, bool nsrst = false,
+          bool xmega = false, bool ignoreIntr = false, bool disableIntr = false):
+      jtag(dev, name, is_dragon? EMULATOR_DRAGON: EMULATOR_JTAGICE,
+           ignoreIntr, disableIntr) {
 	signedIn = debug_active = false;
 	command_sequence = 0;
 	devdescrlen = sizeof(jtag2_device_desc_type);
@@ -102,8 +105,12 @@ class jtag2: public jtag
 
     virtual bool deviceSupportsRangeStepping();
 
+    virtual bool rangeStep(unsigned long start, unsigned long end);
+
   protected:
     virtual void setBreakOnChangeOfFlow(bool yesno);
+
+    bool handleInterrupt(void);
 
   private:
     virtual void changeBitRate(int newBitRate);

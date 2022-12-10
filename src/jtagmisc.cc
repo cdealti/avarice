@@ -68,8 +68,3 @@ uchar jtag1::getJtagParameter(uchar item)
 
     return result;
 }
-
-bool jtag1::deviceSupportsRangeStepping()
-{
-	return false;
-}
